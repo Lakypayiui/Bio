@@ -130,53 +130,73 @@ struct JobState {
  */
 
 void printHeader(const string& headerText, int length){
-    int maxSizePerLine = length - (length*2/5);
-    int space = 0;
-    vector<string> lines;
-    stringstream ss(headerText);
-    string word;
-    string current;
+    #if defined(_WIN32)
+    char topLeft, topRight, bottomLeft, bottomRight, horizontal, vertical;
+        topLeft = 201;  // ╔
+        topRight = 187; // ╗
+        bottomLeft = 200; // ╚
+        bottomRight = 188; // ╝
+        horizontal = 205; // ═
+        vertical = 186; // ║
+    
+    #else
+    string topLeft, topRight, bottomLeft, bottomRight, horizontal, vertical;
+        topLeft = "╔";
+        topRight = "╗";
+        bottomLeft = "╚";
+        bottomRight = "╝";
+        horizontal = "═";
+        vertical = "║";
+        
 
-    while (ss >> word) {
-        if (current.size() + word.size() + 1 > maxSizePerLine) {
+    #endif
+        int maxSizePerLine = length - (length*2/5);
+        int space = 0;
+        vector<string> lines;
+        stringstream ss(headerText);
+        string word;
+        string current;
+    
+        while (ss >> word) {
+            if (current.size() + word.size() + 1 > maxSizePerLine) {
+                lines.push_back(current);
+                current = word; 
+            } else {
+                if (!current.empty())
+                    current += " ";
+                current += word;
+            }
+        }
+        if (!current.empty())
             lines.push_back(current);
-            current = word; 
-        } else {
-            if (!current.empty())
-                current += " ";
-            current += word;
-        }
-    }
-    if (!current.empty())
-        lines.push_back(current);
-
-    cout << char(201);
-    for (int i=0;i<length;i++){
-        cout << char(205);
-    }
-    cout << char(187) << endl;
     
+        cout << topLeft;
+        for (int i=0;i<length;i++){
+            cout << horizontal;
+        }
+        cout << topRight << endl;
+        
+        
+        for (const string& line : lines) {
+            space = (length-line.size())/2;
+            cout << vertical;
+            for (int i=0;i<space;i++){
+                cout << " ";
+            }
+            cout << line;
+            if (line.size()%2 != 0)
+                cout << " ";
+            for (int i=0;i<space;i++){
+                cout << " ";
+            }
+            cout << vertical << endl;
+        }
     
-    for (const string& line : lines) {
-        space = (length-line.size())/2;
-        cout << char(186);
-        for (int i=0;i<space;i++){
-            cout << " ";
+        cout << bottomLeft;
+        for (int i=0;i<length;i++){
+            cout << horizontal;
         }
-        cout << line;
-        if (line.size()%2 != 0)
-            cout << " ";
-        for (int i=0;i<space;i++){
-            cout << " ";
-        }
-        cout << char(186)<< endl;
-    }
-
-    cout << char(200);
-    for (int i=0;i<length;i++){
-        cout << char(205);
-    }
-    cout << char(188) << endl;
+        cout << bottomRight << endl;
 }
 
 class Chromosome {
@@ -1049,6 +1069,7 @@ int main() {
         evaluateAllPolicies(ind1, scenario,"1");
         evaluateAllPolicies(ind2, scenario,"2");
         evaluateAllPolicies(population[0], scenario,"Poblacion");
+        printHeader("acidos bechelours Jhoseph Flowereanous tiene mucha tarea debido a que tiene que mudarse de depa" ,20);
     } catch (const exception& e) {
         cerr << "EXCEPCIoN: " << e.what() << endl;
         return 1;
