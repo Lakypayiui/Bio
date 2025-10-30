@@ -123,20 +123,6 @@ struct JobState {
     JobState() : nextOperationIndex(0), lastOperationEndTime(0.0) {}
 };
 
-// REPRESENTACIoN DEL INDIVIDUO POLIPLOIDE
-
-/*
- Chromosome
- Representa un cromosoma individual que codifica una politica de despacho
- 
- Cada cromosoma almacena una secuencia de prioridades (valores enteros)
- que determinan el orden de ejecucion de las operaciones segun la politica
- 
- policyName: Nombre de la politica (FIFO, LTP, STP, etc.)
- genes: Vector de enteros que codifican las prioridades
-        - Tamaño variable segun el numero de operaciones
-        - Valores tipicamente en rango [1, numMachines]
- */
 
 void printHeader(const string& headerText, int length){
     #if defined(_WIN32)
@@ -284,7 +270,7 @@ void printTable(const vector<string>& fields, const vector<vector<string>>& valu
             }
         }
     }
-    cout << endl << topLeft;
+    cout << topLeft;
     for (int i = 0; i < numFields; i++) {
         for (int j = 0; j < columnWidths[i]; j++) {
             cout << horizontal;
@@ -851,10 +837,7 @@ ScenarioData loadScenario(const string& filename) {
             cout << "Cromosoma Index: " << i << " -> Operacion: [J"<<data.chromosomeMapping[policy][i].first.id + 1 <<" O" << data.chromosomeMapping[policy][i].second.id +1 <<"]"<< endl;
         }
     }
-    
-
-
-    
+        
     cout << "\nEscenario cargado exitosamente" << endl;
     printDivider(50);
     
@@ -951,41 +934,34 @@ OperationSchedule scheduleOperation(
  schedule: Vector con todas las operaciones programadas
  data: Datos del escenario
  */
-void printSchedule(const vector<OperationSchedule>& schedule, const ScenarioData& data) {
+void printSchedule(const vector<OperationSchedule>& schedule, const ScenarioData& data, string policy) {
     cout<<endl;
-    printHeader("SCHEDULING COMPLETO",50);
+    printSubHeader("SCHEDULING " + policy, 50);
     
-    cout << "\nOp\tJob\tMaquina\tInicio\tFin\tTiempo\tEnergia" << endl;
-    cout << "--------------------------------------------------" << endl;
-    
+    vector<string> fields = {"Op", "Job", "Maquina", "Inicio", "Fin", "Tiempo", "Energia"};
+    vector<vector<string>> values;
     for (const auto& op : schedule) {
-        cout << "O" << (op.operationId + 1) << "\t"
-             << "J" << op.jobId << "\t"
-             << "M" << op.machineId << "\t"
-             << op.startTime << "\t"
-             << op.endTime << "\t"
-             << op.processingTime << "\t"
-             << op.energyCost << endl;
+        vector<string> row;
+        row.push_back("O" + to_string(op.operationId + 1));
+        row.push_back("J" + to_string(op.jobId + 1));
+        row.push_back("M" + to_string(op.machineId + 1));
+        row.push_back(to_string(op.startTime));
+        row.push_back(to_string(op.endTime));
+        row.push_back(to_string(op.processingTime));
+        row.push_back(to_string(op.energyCost));
+        values.push_back(row);
     }
-    
-    printDivider(50);
+    printTable(fields, values);
 }
 
-bool evaluateChromosome(
-    Chromosome& chromosome,
-    const ScenarioData& data,
-    bool printScheduleFlag = false
-) {
-    
+vector<OperationSchedule> evaluateChromosome(Chromosome& chromosome, const ScenarioData& data, bool printScheduleFlag = false) {
+    vector<OperationSchedule> schedule;
     // Validar tamaño del cromosoma
     int totalOperations = calculateTotalOperations(data);
     if (chromosome.size() != totalOperations) {
         cerr << "ERROR: Tamaño de cromosoma no coincide con numero de operaciones" << endl;
-        return false;
+        return schedule;
     }
-    
-    // Vector para almacenar todas las operaciones programadas
-    vector<OperationSchedule> schedule;
     string policy = chromosome.policyName;
     
     // Inicializar estados de todas las maquinas
@@ -1023,13 +999,8 @@ bool evaluateChromosome(
     }
     
     chromosome.f1 = makespan;
-    chromosome.f2 = totalEnergy;
-
-    if (printScheduleFlag) {
-        printSchedule(schedule, data);
-    }
-    
-    return true;
+    chromosome.f2 = totalEnergy;    
+    return schedule;
 }
 
 /*
@@ -1042,13 +1013,11 @@ bool evaluateChromosome(
  data: Datos del escenario
  */
 void evaluateAllPolicies(Individual& individual, const ScenarioData& data, string individuo, bool showTable = false, bool showSchedule = false) {
-    
+    vector<vector<OperationSchedule>> allSchedules;
     for (int i = 0; i < individual.getNumChromosomes(); i++) {
-        bool success = evaluateChromosome(individual.chromosomes[i], data, showSchedule);
-        if (!success) {
-            cerr << "ERROR: Evaluacion de politica fallo" << endl;
-            continue;
-        }  
+        vector<OperationSchedule> schedule = evaluateChromosome(individual.chromosomes[i], data, showSchedule);
+        string policy = individual.chromosomes[i].policyName;
+        allSchedules.push_back(schedule);
     }    
     vector<string> fields = {"Politica", "Makespan", "Energia"};
     vector<vector<string>> values;
@@ -1065,6 +1034,13 @@ void evaluateAllPolicies(Individual& individual, const ScenarioData& data, strin
         printHeader("EVALUACION POLITICAS DEL INDIVIDUO: "+ individuo,50);
         individual.print(false);
         printTable(fields, values);
+        if (showSchedule) {
+            for (int i = 0; i < individual.getNumChromosomes(); i++) {
+            vector<OperationSchedule> schedule = allSchedules[i];
+            string policy = individual.chromosomes[i].policyName;
+            printSchedule(schedule, data, policy);
+            }
+        }
     }
     
 }
@@ -1163,35 +1139,35 @@ void fastNonDominatedSort(vector<Individual>& population) {
 }
 
 Individual tournamentSelection(const vector<Individual>& population) {
-    int i = rand() % population.size();
-    int j = rand() % population.size();
-    
-    const Individual& A = population[i];
-    const Individual& B = population[j];
-    
-    // Primero se mira el frente de Pareto
-    int rankAggregateA = 0;
-    int rankAggregateB = 0;
-    for (auto& chr : A.chromosomes)
-        rankAggregateA += chr.domLevel;
-    for (auto& chr : B.chromosomes)
-        rankAggregateB += chr.domLevel;
-    if (rankAggregateA < rankAggregateB)
-        return A;
-    else if (rankAggregateB < rankAggregateA)
-        return B;
-    
-    // Si están en el mismo frente, mirar crowding distance
-    int crowdingAggregateA = 0;
-    int crowdingAggregateB = 0;
-    for (auto& chr : A.chromosomes)
-        crowdingAggregateA += chr.crowdingDistance;
-    for (auto& chr : B.chromosomes)
-        crowdingAggregateB += chr.crowdingDistance;
-    if (crowdingAggregateA > crowdingAggregateB)
-        return A;
-    else
-        return B;
+    int index1 = rand() % population.size();
+    int index2 = rand() % population.size();
+    const Individual& A = population[index1];
+    const Individual& B = population[index2];
+    Individual superIndividual;
+    for(int c=0; c<A.getNumChromosomes(); c++){
+        if (A.chromosomes[c].domLevel < B.chromosomes[c].domLevel){
+            for(int j=0; j<A.chromosomes[c].genes.size(); j++){
+                superIndividual.chromosomes[c].genes.push_back(A.chromosomes[c].genes[j]);
+            }
+        }
+        else if (B.chromosomes[c].domLevel < A.chromosomes[c].domLevel){
+            for(int j=0; j<B.chromosomes[c].genes.size(); j++){
+                superIndividual.chromosomes[c].genes.push_back(B.chromosomes[c].genes[j]);
+            }
+        }
+        else {
+            if (A.chromosomes[c].crowdingDistance > B.chromosomes[c].crowdingDistance){
+                for(int j=0; j<A.chromosomes[c].genes.size(); j++){
+                    superIndividual.chromosomes[c].genes.push_back(A.chromosomes[c].genes[j]);
+                }
+            } else {
+                for(int j=0; j<B.chromosomes[c].genes.size(); j++){
+                    superIndividual.chromosomes[c].genes.push_back(B.chromosomes[c].genes[j]);
+                }
+            }
+        }
+    }
+    return superIndividual;
 }
 
 vector<Individual> selectParents(const vector<Individual>& population, int numParents) {
@@ -1249,36 +1225,8 @@ vector<Individual> uniformCrossoverPopulation(const vector<Individual>& parents,
 vector<Individual> selectSurvivors(const vector<Individual>& combinedPopulation, int desiredSize) {
     vector<Individual> newPopulation;
     newPopulation.reserve(desiredSize);
- 
     for(int i = 0; i<desiredSize; i++){
-        int index1 = rand() % combinedPopulation.size();
-        int index2 = rand() % combinedPopulation.size();
-        const Individual& A = combinedPopulation[index1];
-        const Individual& B = combinedPopulation[index2];
-        Individual superIndividual;
-        for(int c=0; c<A.getNumChromosomes(); c++){
-            if (A.chromosomes[c].domLevel < B.chromosomes[c].domLevel){
-                for(int j=0; j<A.chromosomes[c].genes.size(); j++){
-                    superIndividual.chromosomes[c].genes.push_back(A.chromosomes[c].genes[j]);
-                }
-            }
-            else if (B.chromosomes[c].domLevel < A.chromosomes[c].domLevel){
-                for(int j=0; j<B.chromosomes[c].genes.size(); j++){
-                    superIndividual.chromosomes[c].genes.push_back(B.chromosomes[c].genes[j]);
-                }
-            }
-            else {
-                if (A.chromosomes[c].crowdingDistance > B.chromosomes[c].crowdingDistance){
-                    for(int j=0; j<A.chromosomes[c].genes.size(); j++){
-                        superIndividual.chromosomes[c].genes.push_back(A.chromosomes[c].genes[j]);
-                    }
-                } else {
-                    for(int j=0; j<B.chromosomes[c].genes.size(); j++){
-                        superIndividual.chromosomes[c].genes.push_back(B.chromosomes[c].genes[j]);
-                    }
-                }
-            }
-        }
+        Individual superIndividual = tournamentSelection(combinedPopulation);
         newPopulation.push_back(superIndividual);
     }
     return newPopulation;
@@ -1336,30 +1284,77 @@ void mutationShift(Individual& individual, mt19937& rng, float mutationRate, uni
     }
 }
 
-void graphParetoFront(const vector<Individual>& population, int chromosomeIndex) {
-    vector<double> x_vals;
-    vector<double> y_vals;
-    vector<double> c; 
-    int maxDomLevel = INT_MIN;
-    for (const Individual& ind : population) {
-        int level = ind.chromosomes[chromosomeIndex].domLevel;
-        if (level > maxDomLevel)
-            maxDomLevel = level;
-    }
-    for (int level = 1; level <= maxDomLevel; level++) {
-        vector<Individual> front;
+void graphParetoFront(const vector<Individual>& population) {
+    int numChrom = population[0].getNumChromosomes();
+
+    vector<vector<double>> x_vals(numChrom);
+    vector<vector<double>> y_vals(numChrom);
+
+    // Clasificar puntos por cromosoma
+    for (int c = 0; c < numChrom; c++) {
         for (const Individual& ind : population) {
-            if (ind.chromosomes[chromosomeIndex].domLevel == level) {
-                x_vals.push_back(ind.chromosomes[chromosomeIndex].f1);
-                y_vals.push_back(ind.chromosomes[chromosomeIndex].f2);
-                c.push_back(level);
+            if (ind.chromosomes[c].domLevel == 1) {
+                x_vals[c].push_back(ind.chromosomes[c].f1);
+                y_vals[c].push_back(ind.chromosomes[c].f2);
             }
         }
     }
-    scatter(x_vals, y_vals, 10, c);
+
+    // Colores predefinidos
+    vector<string> colors = {"r", "g", "b", "m", "c", "y", "k"};
+
+    // Crear una figura
+    figure(true);
+    hold(on);
+
+    for (int c = 0; c < numChrom; c++) {
+        auto sc = scatter(x_vals[c], y_vals[c], 10);
+        sc->color(colors[c % colors.size()]);  // Reutiliza si hay más cromosomas que colores
+        sc->display_name("Cromosoma " + population[0].chromosomes[c].policyName); // Etiqueta
+    }
+
     title("Poblacion - Distribucion de Makespan vs Energia");
     xlabel("Makespan");
     ylabel("Energia");
+
+    legend(); // <--- Agrega la leyenda automáticamente
+    hold(off);
+    show();
+}
+
+void graphPopulation(const vector<Individual>& population) {
+    int numChrom = population[0].getNumChromosomes();
+
+    vector<vector<double>> x_vals(numChrom);
+    vector<vector<double>> y_vals(numChrom);
+
+    // Clasificar puntos por cromosoma
+    for (int c = 0; c < numChrom; c++) {
+        for (const Individual& ind : population) {
+            x_vals[c].push_back(ind.chromosomes[c].f1);
+            y_vals[c].push_back(ind.chromosomes[c].f2);
+        }
+    }
+
+    // Colores predefinidos
+    vector<string> colors = {"r", "g", "b", "m", "c", "y", "k"};
+
+    // Crear una figura
+    figure(true);
+    hold(on);
+
+    for (int c = 0; c < numChrom; c++) {
+        auto sc = scatter(x_vals[c], y_vals[c], 10);
+        sc->color(colors[c % colors.size()]);  // Reutiliza si hay más cromosomas que colores
+        sc->display_name("Cromosoma " + population[0].chromosomes[c].policyName); // Etiqueta
+    }
+
+    title("Poblacion - Distribucion de Makespan vs Energia");
+    xlabel("Makespan");
+    ylabel("Energia");
+
+    legend(); // <--- Agrega la leyenda automáticamente
+    hold(off);
     show();
 }
 
@@ -1367,7 +1362,7 @@ vector<Individual> geneticAlgorithmStep(vector<Individual>& population, const Sc
     uniform_real_distribution<double> dist(0.0, 1.0);
     
     vector<Individual> parents = selectParents(population, populationSize);
-    vector<Individual> offspring = uniformCrossoverPopulation(parents, rng, 0.9, dist);
+    vector<Individual> offspring = uniformCrossoverPopulation(parents, rng, 0.8, dist);
     
     for (size_t i = 0; i < offspring.size(); i++){
         string individuo = to_string(i+1);
@@ -1421,6 +1416,61 @@ double calculateHyperVolume(const vector<Individual>& population, int chromosome
     return hypervolume;
 }
 
+Individual getKneePoint(const vector<Individual>& population) {
+    double refF1 = 0.0;
+    double refF2 = 0.0;
+    double minDistance = numeric_limits<double>::max();
+    Individual kneePoint;
+
+    for (const auto& ind : population) {
+        for (int c = 0; c < ind.getNumChromosomes(); c++) {
+            if (ind.chromosomes[c].domLevel == 1) {
+                double f1 = ind.chromosomes[c].f1;
+                double f2 = ind.chromosomes[c].f2;
+
+                double distance = sqrt(pow(refF2 - f2, 2) + pow(refF1 - f1, 2));
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    kneePoint = ind;
+                }
+            }
+        }
+        
+    }
+    return kneePoint;
+}
+
+Individual getBestMakespan(const vector<Individual>& population) {
+    double bestMakespan = numeric_limits<double>::max();
+    Individual bestIndividual;
+
+    for (const auto& ind : population) {
+        for (int c = 0; c < ind.getNumChromosomes(); c++) {
+            if (ind.chromosomes[c].f1 < bestMakespan) {
+                bestMakespan = ind.chromosomes[c].f1;
+                bestIndividual = ind;
+            }
+        }
+    }
+    return bestIndividual;
+}
+
+Individual getBestEnergy(const vector<Individual>& population) {
+    double bestEnergy = numeric_limits<double>::max();
+    Individual bestIndividual;
+
+    for (const auto& ind : population) {
+        for (int c = 0; c < ind.getNumChromosomes(); c++) {
+            if (ind.chromosomes[c].f2 < bestEnergy) {
+                bestEnergy = ind.chromosomes[c].f2;
+                bestIndividual = ind;
+            }
+        }
+    }
+    return bestIndividual;
+}
+
 int main() {
     try {
         int populationSize = 20;
@@ -1449,10 +1499,6 @@ int main() {
         cout << "Cromosomas por individuo: " << population[0].getNumChromosomes() << endl;
         cout << "Genes por cromosoma: " << population[0].chromosomes[0].size() << endl;
 
-        
-
-
-        // FIFO
         vector<double> x_vals;
         vector<double> y_vals;
         vector<double> c; 
@@ -1460,18 +1506,9 @@ int main() {
         for (size_t i = 0; i < population.size(); i++){
             string individuo = to_string(i+1);
             evaluateAllPolicies(population[i], scenario, individuo, false, false);
-            for (size_t j = 0; j < population[i].chromosomes.size(); j++) {
-                x_vals.push_back(population[i].chromosomes[j].f1);
-                y_vals.push_back(population[i].chromosomes[j].f2);
-                c.push_back(j);
-            }
 
         }
-        scatter(x_vals, y_vals, 5, c);
-        title("Poblacion Inicial - Distribucion de Makespan vs Energia");
-        xlabel("Makespan");
-        ylabel("Energia");
-        show();
+        graphPopulation(population);
 
         double f1_max = population[0].chromosomes[0].f1;
         double f2_max = population[0].chromosomes[0].f2;
@@ -1488,7 +1525,8 @@ int main() {
         fastNonDominatedSort(population);
         vector<vector<double>> hypervolumes(population[0].getNumChromosomes());
         for(int gen = 1; gen < numGenerations+1; gen++){
-            population = geneticAlgorithmStep(population, scenario, populationSize, rng);
+            vector<Individual> new_population = geneticAlgorithmStep(population, scenario, populationSize, rng);
+            population = new_population;
             for (int i=0; i<population[0].getNumChromosomes(); i++){
                 double hv = calculateHyperVolume(population, i, f1_max, f2_max);
                 hypervolumes[i].push_back(hv);
@@ -1511,19 +1549,14 @@ int main() {
                 printTable(hvTableFields, hvTableValues);
             }
         }
-        for (size_t i = 0; i < population.size(); i++){
-            for (size_t j = 0; j < population[i].chromosomes.size(); j++) {
-                x_vals.push_back(population[i].chromosomes[j].f1);
-                y_vals.push_back(population[i].chromosomes[j].f2);
-                c.push_back(j);
-            }
-
-        }
-        scatter(x_vals, y_vals, 5, c);
-        title("Poblacion Inicial - Distribucion de Makespan vs Energia");
-        xlabel("Makespan");
-        ylabel("Energia");
-        show();
+        graphPopulation(population);
+        graphParetoFront(population);
+        Individual kneePoint = getKneePoint(population);
+        evaluateAllPolicies(kneePoint, scenario, "Rodilla", true, true);
+        Individual bestMakespan = getBestMakespan(population);
+        evaluateAllPolicies(bestMakespan, scenario, "Mejor Makespan", true, true);
+        Individual bestEnergy = getBestEnergy(population);
+        evaluateAllPolicies(bestEnergy, scenario, "Mejor Energia", true, true);
         
     } catch (const exception& e) {
         cerr << "EXCEPCION: " << e.what() << endl;
